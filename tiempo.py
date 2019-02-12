@@ -5,6 +5,12 @@ import datetime
 import json
 from dataclasses import dataclass
 
+CALMA_STR = 'Calma'
+URL_DESCARGA = 'https://ssl.smn.gob.ar/dpd/zipopendata.php?dato='
+PARAM_TIEMPO = 'tiepre'
+PARAM_PRONOSTICO = 'pron5d'
+TEXT_ENCODING = 'latin-1'
+
 @dataclass
 class Tiempo:
     fecha_hora: datetime.datetime
@@ -30,10 +36,10 @@ meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio',
 meses_pronostico = [mes[:3].upper() for mes in meses]
 
 def descargar_datos(param):
-    r = requests.get('https://ssl.smn.gob.ar/dpd/zipopendata.php?dato=' + param)
+    r = requests.get(URL_DESCARGA + param)
     z = zipfile.ZipFile(io.BytesIO(r.content))
     nombre = z.namelist()[0]
-    return list(io.TextIOWrapper(z.open(nombre), 'latin-1'))
+    return list(io.TextIOWrapper(z.open(nombre), TEXT_ENCODING))
 
 def jsonificar(objeto):
     return json.JSONEncoder().encode({
@@ -42,14 +48,16 @@ def jsonificar(objeto):
     })
 
 def dict_a_json(dic):
-    resultado = '{'
-    for (k, v) in dic.items():
-        resultado += "'" + k + "': " + v + ", "
-    return resultado[:-2] + '}'
+    if dic:
+        resultado = '{'
+        for (k, v) in dic.items():
+            resultado += '"' + k + '": ' + v + ', '
+        return resultado[:-2] + '}'
+    return '{}'
 
 def tiempo_actual():
     data = [renglon.lstrip().rstrip()[:-2].split(';') for renglon
-                in descargar_datos('tiepre')]
+                in descargar_datos(PARAM_TIEMPO)]
     tiempo = {}
     for linea in data:
         estacion = linea[0]
@@ -65,8 +73,8 @@ def tiempo_actual():
         except:
             termica = None
         humedad = int(linea[7])
-        if linea[8] == 'Calma':
-            (viento_dir, viento_vel) = ('Calma', 0)
+        if linea[8] == CALMA_STR:
+            (viento_dir, viento_vel) = (CALMA_STR, 0)
         else:
             viento_vel = linea[8].split()[-1]
             viento_dir = linea[8][:-len(viento_vel)].rstrip()
@@ -75,15 +83,15 @@ def tiempo_actual():
         tiempo[estacion] = Tiempo(fecha_hora, estado, visibilidad,
                             temperatura, termica, humedad, viento_dir,
                             viento_vel, presion)
-        #print(tiempo)
     return tiempo
 
 def pronostico():
-    data = descargar_datos('pron5d')[5:]
-    estacion = data[0].lstrip().rstrip()
-    linea = 5
+    data = descargar_datos(PARAM_PRONOSTICO)[5:]
+    linea = 0
     pronosticos = {}
-    while True:
+    while linea < len(data)-1:
+        estacion = data[linea].lstrip().rstrip()
+        linea += 5
         pronostico_estacion = []
         for i in range(40):
             datos = data[linea].split()
@@ -100,10 +108,7 @@ def pronostico():
                                                     precipitacion))
             linea += 1
         pronosticos[estacion] = pronostico_estacion
-        if estacion == 'VILLA_REYNOLDS_AERO':
-            break
-        estacion = data[linea+1].lstrip().rstrip()
-        linea += 6
+        linea += 1
     return pronosticos
 
 def tiempo_actual_json():
@@ -114,4 +119,3 @@ def pronostico_json():
     datos_pronostico = pronostico()
     return dict_a_json({k : '['+', '.join([jsonificar(i) for i in v])+']'
                                 for (k, v) in datos_pronostico.items()})
-print(pronostico_json())
